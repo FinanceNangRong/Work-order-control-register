@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>7. ทะเบียนคุมส่งทำเช็ค</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        html{font-size:90%;}body{font-family:'Noto Sans Thai',sans-serif;background-color:#f3f4f6;}
+        .print-only{display:none;}
+        @media print{
+            @page{size:A4 portrait;margin:10mm;}
+            body,html{background-color:white;height:auto!important;overflow:visible!important;display:block!important;}
+            .h-screen,.overflow-hidden,.overflow-auto,.overflow-x-auto,.flex-1,main,#printArea,#contentContainer{height:auto!important;overflow:visible!important;display:block!important;position:static!important;margin:0!important;padding:0!important;page-break-inside:auto!important;break-inside:auto!important;}
+            .shadow-sm{box-shadow:none!important;}.rounded-lg{border-radius:0!important;}
+            .no-print{display:none!important;}.print-only{display:block!important;}.print-full-width{width:100%!important;margin:0!important;padding:0!important;box-shadow:none!important;}
+            table{width:100%;border-collapse:collapse;page-break-inside:auto;}tr{page-break-inside:avoid;page-break-after:auto;}thead{display:table-header-group;}tfoot{display:table-footer-group;}
+            th,td{border:1px solid #000!important;padding:1.5mm 3px!important;height:auto!important;line-height:1!important;font-size:7.8pt!important;}
+            th{background-color:#f3f4f6!important;-webkit-print-color-adjust:exact;font-weight:bold!important;}
+            td{font-weight:normal!important;}td.font-medium,td.font-semibold,td.font-bold{font-weight:normal!important;}
+            tfoot td{background-color:#f3f4f6!important;-webkit-print-color-adjust:exact;font-weight:bold!important;}
+            .print-fixed-table{table-layout:fixed!important;width:100%!important;max-width:100%!important;margin:0 auto!important;}
+            .print-fixed-table th,.print-fixed-table td{white-space:normal!important;word-wrap:break-word!important;overflow-wrap:break-word!important;}
+            .print-truncate{white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;word-wrap:normal!important;overflow-wrap:normal!important;}
+        }
+        ::-webkit-scrollbar{width:8px;height:8px;}::-webkit-scrollbar-track{background:#f1f1f1;}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px;}::-webkit-scrollbar-thumb:hover{background:#94a3b8;}
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+    <header class="bg-blue-800 text-white p-4 shadow-md no-print shrink-0 flex justify-between items-center">
+        <div class="flex items-center gap-3">
+            <a href="https://financenangrong.github.io/financial-system/" class="text-white hover:bg-blue-700 focus:outline-none p-2 rounded transition-colors flex items-center gap-1" title="ย้อนกลับ">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                <span class="hidden sm:inline font-medium text-sm">ย้อนกลับ</span>
+            </a>
+            <h1 class="text-2xl font-bold">7. ทะเบียนคุมส่งทำเช็ค</h1>
+        </div>
+        <div id="statusBadge" class="text-sm px-3 py-1 rounded-full bg-yellow-100 text-yellow-800 font-medium flex items-center gap-2">กำลังโหลดข้อมูล...</div>
+    </header>
+    <main class="flex-1 bg-white overflow-auto p-6 print-full-width" id="printArea">
+        <div id="contentContainer" class="max-w-7xl mx-auto">
+            <div class="text-center text-gray-400 mt-20 no-print">กำลังโหลดข้อมูลอัตโนมัติ กรุณารอสักครู่...</div>
+        </div>
+    </main>
+
+    <script>
+        const GOOGLE_SHEET_CSV_URL="https://docs.google.com/spreadsheets/d/e/2PACX-1vT-vY0-Ic04efRHyFptGVLR3UCipBUBhJiFSCWl_3RDAbQP6cUdQaz53D_1Sru3rg/pub?output=csv";
+        let appData=[];
+        
+        let startDate_forReport5 = "";
+        let endDate_forReport5 = "";
+        let selectedCategoriesM_forReport5 = []; 
+        let selectedCompanies_forReport5 = []; 
+        let currentAvailableCompanies5 = []; 
+        let currentAvailableCategories5 = []; 
+        let report5DropdownOpen = false; 
+        let report5CompanyDropdownOpen = false; 
+
+        function updateStatus(s){const b=document.getElementById('statusBadge');if(b){b.className=`text-sm px-3 py-1 rounded-full ${s?'bg-emerald-100 text-emerald-800':'bg-red-100 text-red-800'} font-medium flex items-center gap-2`;b.innerHTML=`<span class="relative flex h-3 w-3"><span class="relative inline-flex rounded-full h-3 w-3 ${s?'bg-emerald-500':'bg-red-500'}"></span></span>${s?'ข้อมูลพร้อมใช้งาน':'โหลดล้มเหลว'}`;}}
+        function parseNumberValue(v){if(!v)return 0;if(typeof v==='string')v=v.replace(/,/g,'');const n=parseFloat(v);return isNaN(n)?0:n;}
+        function formatNumber(n){const v=parseFloat(n);return (isNaN(v)||v===0)?'0.00':v.toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2});}
+        function getJSDate(v){if(!v)return null;if(typeof v==='number')return new Date(new Date(Date.UTC(1899,11,30)).getTime()+v*86400000);const p=String(v).trim().split(/[-/]/);if(p.length===3){let d=parseInt(p[0]),m=parseInt(p[1])-1,y=parseInt(p[2]);if(p[0].length===4){y=parseInt(p[0]);m=parseInt(p[1])-1;d=parseInt(p[2]);}if(y<100)y+=y>=50?2500:2000;if(y>2400)y-=543;return new Date(y,m,d);}return isNaN(new Date(v).getTime())?null:new Date(v);}
+        const parseDateForFilter=(s)=>{if(!s||String(s).trim()==='-'||String(s).trim()==='')return null;let c=String(s).trim();const p=c.split(/[\/\-]/);if(p.length===3){let d=parseInt(p[0],10),m=parseInt(p[1],10)-1,y=parseInt(p[2],10);if(p[0].length===4){y=parseInt(p[0],10);m=parseInt(p[1],10)-1;d=parseInt(p[2],10);}if(y<100)y+=y>40?2500:2000;if(y>=2400)y-=543;let dObj=new Date(y,m,d);if(!isNaN(dObj.getTime()))return dObj.getTime();}const tS=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'],tF=['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'],tM=c.match(/(\d{1,2})\s+([ก-๙\.]+)\s+(\d{2,4})/);if(tM){let d=parseInt(tM[1],10),mo=tM[2],y=parseInt(tM[3],10),m=tS.findIndex(t=>mo.includes(t));if(m===-1)m=tF.findIndex(t=>mo.includes(t));if(m===-1)m=0;if(y<100)y+=y>40?2500:2000;if(y>=2400)y-=543;return new Date(y,m,d).getTime();}if(!isNaN(c)&&Number(c)>10000)return new Date(Date.UTC(1899,11,30)).getTime()+Number(c)*86400000;let dObj=new Date(c);return isNaN(dObj.getTime())?null:dObj.getTime();};
+        function formatThaiDate(v,s=false){if(!v)return '-';let d,m,y;if(typeof v==='number'){const doObj=new Date(new Date(Date.UTC(1899,11,30)).getTime()+v*86400000);d=doObj.getUTCDate();m=doObj.getUTCMonth()+1;y=doObj.getUTCFullYear();if(y<2500)y+=543;}else{let ds=String(v).trim();const p=ds.split(/[-/]/);if(p.length===3){d=parseInt(p[0]);m=parseInt(p[1]);y=parseInt(p[2]);if(p[0].length===4){y=parseInt(p[0]);m=parseInt(p[1]);d=parseInt(p[2]);}if(!isNaN(d)&&!isNaN(m)&&!isNaN(y)){if(y<100)y+=y>=50?2500:2000;if(y<2500)y+=543;}else return ds;}else return ds;}return `${String(d).padStart(2,'0')}/${String(m).padStart(2,'0')}/${s?String(y).slice(-2):y}`;}
+        function formatThaiDateShort(v){if(!v)return '-';const jd=getJSDate(v);if(!jd)return String(v);const tS=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];return `${jd.getDate()} ${tS[jd.getMonth()]} ${String(jd.getFullYear()).slice(-2)}`;}
+        function filterDropdownOptions(i,t){const c=document.getElementById(i);if(!c)return;const ls=c.getElementsByTagName('label'),f=t.toLowerCase().replace(/\s+/g,'');for(let j=0;j<ls.length;j++){const s=ls[j].querySelector('span');if(s)ls[j].style.display=(s.textContent||s.innerText).toLowerCase().replace(/\s+/g,'').indexOf(f)>-1?"":"none";}}
+        function enrichData(rows){return rows.map(r=>{r._e=parseNumberValue(r[4]);r._f=parseNumberValue(r[5]);r._g=parseNumberValue(r[6]);r._h=parseNumberValue(r[7]);r._compC=String(r[2]||'').trim();r._compCSearch=r._compC.toLowerCase().replace(/\s+/g,'');r._invD=r[3]||'-';r._valM=String(r[12]||'').trim()||'ไม่ระบุหมวดหมู่';r._dept=String(r[13]||'').trim();r._status=String(r[22]||'').trim();r._taxId=String(r[21]||'').trim();r._dateRecTs=parseDateForFilter(r[1]);r._datePayTs=parseDateForFilter(r[8]);let jd=getJSDate(r[23]);r._dateProcessTs=jd?jd.getTime():null;r._dateRecStr=formatThaiDate(r[1]);r._datePayStr=formatThaiDate(r[8]);r._dateProcessStr=formatThaiDate(r[23],true);r._dateProcessStrShort=formatThaiDateShort(r[23]);return r;});}
+        function formatHTMLDate(yyyy_mm_dd) {if(!yyyy_mm_dd) return ''; const parts = yyyy_mm_dd.split('-'); if(parts.length !== 3) return yyyy_mm_dd; return `${parts[2]}/${parts[1]}/${parseInt(parts[0])+543}`;}
+
+        // Logic Report 7
+        function updateReport5Dates(type, val) { if (type === 'start') startDate_forReport5 = val; if (type === 'end') endDate_forReport5 = val; renderReport5(document.getElementById('contentContainer')); }
+        function selectAllCompanies5() { selectedCompanies_forReport5 = [...currentAvailableCompanies5]; renderReport5(document.getElementById('contentContainer')); }
+        function clearAllCompanies5() { selectedCompanies_forReport5 = []; renderReport5(document.getElementById('contentContainer')); }
+        function selectAllCategories5() { selectedCategoriesM_forReport5 = [...currentAvailableCategories5]; renderReport5(document.getElementById('contentContainer')); }
+        function clearAllCategories5() { selectedCategoriesM_forReport5 = []; renderReport5(document.getElementById('contentContainer')); }
+        function updateReport5CompanyFilter(val, isChecked) { if (isChecked) { if (!selectedCompanies_forReport5.includes(val)) selectedCompanies_forReport5.push(val); } else { selectedCompanies_forReport5 = selectedCompanies_forReport5.filter(item => item !== val); } renderReport5(document.getElementById('contentContainer')); }
+        function toggleReport5CompanyDropdown() { report5CompanyDropdownOpen = !report5CompanyDropdownOpen; const dd = document.getElementById('compDropdown5'); if (dd) report5CompanyDropdownOpen ? dd.classList.remove('hidden') : dd.classList.add('hidden'); }
+        function toggleReport5Dropdown() { report5DropdownOpen = !report5DropdownOpen; const dd = document.getElementById('catDropdown5'); if (dd) report5DropdownOpen ? dd.classList.remove('hidden') : dd.classList.add('hidden'); }
+        function updateReport5CategoryFilter(val, isChecked) { if (isChecked) { if (!selectedCategoriesM_forReport5.includes(val)) selectedCategoriesM_forReport5.push(val); } else { selectedCategoriesM_forReport5 = selectedCategoriesM_forReport5.filter(item => item !== val); } renderReport5(document.getElementById('contentContainer')); }
+
+        window.addEventListener('click', function(e) {
+            const catDd = document.getElementById('catDropdown5'), catBtn = document.getElementById('catDropdownBtn5');
+            if (catDd && catBtn && report5DropdownOpen && !catDd.contains(e.target) && !catBtn.contains(e.target)) { report5DropdownOpen = false; catDd.classList.add('hidden'); }
+            const compDd = document.getElementById('compDropdown5'), compBtn = document.getElementById('compDropdownBtn5');
+            if (compDd && compBtn && report5CompanyDropdownOpen && !compDd.contains(e.target) && !compBtn.contains(e.target)) { report5CompanyDropdownOpen = false; compDd.classList.add('hidden'); }
+        });
+
+        function renderReport5(container) {
+            let dateFilteredData = appData.filter(row => row._status.includes('กำลังดำเนินการจ่าย'));
+            if (startDate_forReport5) { const sDate = new Date(startDate_forReport5); sDate.setHours(0,0,0,0); dateFilteredData = dateFilteredData.filter(row => row._dateProcessTs && row._dateProcessTs >= sDate.getTime()); }
+            if (endDate_forReport5) { const eDate = new Date(endDate_forReport5); eDate.setHours(23,59,59,999); dateFilteredData = dateFilteredData.filter(row => row._dateProcessTs && row._dateProcessTs <= eDate.getTime()); }
+
+            currentAvailableCompanies5 = [...new Set(dateFilteredData.map(row => row._compC).filter(val => val !== ''))].sort();
+            let compFilteredData = dateFilteredData;
+            if (selectedCompanies_forReport5.length > 0) compFilteredData = compFilteredData.filter(row => selectedCompanies_forReport5.includes(row._compC));
+
+            currentAvailableCategories5 = [...new Set(compFilteredData.map(row => row._valM).filter(val => val !== 'ไม่ระบุหมวดหมู่'))].sort();
+            
+            let finalFilteredData = compFilteredData;
+            if (selectedCategoriesM_forReport5.length > 0) finalFilteredData = finalFilteredData.filter(row => selectedCategoriesM_forReport5.includes(String(row[12] || '').trim()));
+
+            let titleText = 'ทะเบียนคุมส่งทำเช็ค';
+            if(startDate_forReport5) titleText += ` ตั้งแต่วันที่ ${formatHTMLDate(startDate_forReport5)}`;
+            if(endDate_forReport5) titleText += ` ถึงวันที่ ${formatHTMLDate(endDate_forReport5)}`;
+
+            let headerHTML = `
+                <div class="flex flex-col mb-6 gap-4 no-print">
+                    <div class="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4">
+                        <div class="w-full lg:w-auto">
+                            <h3 class="text-2xl font-bold text-gray-800 mb-3">7. ทะเบียนคุมส่งทำเช็ค</h3>
+                            <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-3">
+                                <label class="text-gray-700 font-medium whitespace-nowrap">ตั้งแต่วันที่:</label>
+                                <input type="date" value="${startDate_forReport5}" onchange="updateReport5Dates('start', this.value)" class="border border-gray-300 rounded-lg px-3 py-2 outline-none w-full sm:w-auto">
+                                <label class="text-gray-700 font-medium whitespace-nowrap mt-2 sm:mt-0">ถึงวันที่:</label>
+                                <input type="date" value="${endDate_forReport5}" onchange="updateReport5Dates('end', this.value)" class="border border-gray-300 rounded-lg px-3 py-2 outline-none w-full sm:w-auto">
+                            </div>
+                            <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                                <label class="text-gray-700 font-medium whitespace-nowrap">บริษัท:</label>
+                                <div class="relative inline-block text-left w-full sm:w-auto">
+                                    <button type="button" id="compDropdownBtn5" onclick="toggleReport5CompanyDropdown()" class="border border-gray-300 rounded-lg px-4 py-2 bg-white text-gray-800 shadow-sm flex items-center justify-between w-full sm:w-64 focus:outline-none">
+                                        <span class="truncate">${selectedCompanies_forReport5.length > 0 ? selectedCompanies_forReport5.join(', ') : '-- เลือกบริษัททั้งหมด --'}</span>
+                                        <svg class="-mr-1 ml-2 h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                                    </button>
+                                    <div id="compDropdown5" class="${report5CompanyDropdownOpen ? '' : 'hidden'} origin-top-right absolute left-0 mt-2 w-full sm:w-80 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-30">
+                                        <div class="sticky top-0 z-10 bg-white rounded-t-md shadow-sm">
+                                            <div class="px-3 py-2 border-b border-gray-200 flex justify-between bg-gray-50 rounded-t-md"><button type="button" onclick="selectAllCompanies5()" class="text-xs font-semibold text-blue-600">เลือกทั้งหมด</button><button type="button" onclick="clearAllCompanies5()" class="text-xs font-semibold text-red-600">ล้าง</button></div>
+                                            <div class="p-2 border-b border-gray-200"><input type="text" placeholder="พิมพ์ค้นหาบริษัท..." oninput="filterDropdownOptions('compListContainer5', this.value)" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm outline-none"></div>
+                                        </div>
+                                        <div id="compListContainer5" class="py-1 max-h-48 overflow-y-auto px-3">
+                                            ${currentAvailableCompanies5.length > 0 ? currentAvailableCompanies5.map(comp => `
+                                                <label class="flex items-center py-2 cursor-pointer hover:bg-gray-50 border-b border-gray-100 last:border-0"><input type="checkbox" value="${comp}" ${selectedCompanies_forReport5.includes(comp) ? 'checked' : ''} onchange="updateReport5CompanyFilter(this.value, this.checked)" class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded mr-3"><span class="text-sm text-gray-700">${comp}</span></label>
+                                            `).join('') : '<div class="py-2 text-sm text-gray-500">ไม่พบบริษัทในช่วงที่เลือก</div>'}
+                                        </div>
+                                    </div>
+                                </div>
+                                <label class="text-gray-700 font-medium whitespace-nowrap ml-0 sm:ml-2 mt-2 sm:mt-0">ค่า:</label>
+                                <div class="relative inline-block text-left w-full sm:w-auto">
+                                    <button type="button" id="catDropdownBtn5" onclick="toggleReport5Dropdown()" class="border border-gray-300 rounded-lg px-4 py-2 bg-white text-gray-800 shadow-sm flex items-center justify-between w-full sm:w-64 focus:outline-none">
+                                        <span class="truncate">${selectedCategoriesM_forReport5.length > 0 ? selectedCategoriesM_forReport5.join(', ') : '-- เลือกค่าทั้งหมด --'}</span>
+                                        <svg class="-mr-1 ml-2 h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+                                    </button>
+                                    <div id="catDropdown5" class="${report5DropdownOpen ? '' : 'hidden'} origin-top-right absolute left-0 mt-2 w-full sm:w-64 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-20">
+                                        <div class="sticky top-0 z-10 bg-white rounded-t-md shadow-sm">
+                                            <div class="px-3 py-2 border-b border-gray-200 flex justify-between bg-gray-50 rounded-t-md"><button type="button" onclick="selectAllCategories5()" class="text-xs font-semibold text-blue-600">เลือกทั้งหมด</button><button type="button" onclick="clearAllCategories5()" class="text-xs font-semibold text-red-600">ล้าง</button></div>
+                                            <div class="p-2 border-b border-gray-200"><input type="text" placeholder="พิมพ์ค้นหาค่า..." oninput="filterDropdownOptions('catListContainer5', this.value)" class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm outline-none"></div>
+                                        </div>
+                                        <div id="catListContainer5" class="py-1 max-h-48 overflow-y-auto px-3">
+                                            ${currentAvailableCategories5.length > 0 ? currentAvailableCategories5.map(cat => `
+                                                <label class="flex items-center py-2 cursor-pointer hover:bg-gray-50 border-b border-gray-100 last:border-0"><input type="checkbox" value="${cat}" ${selectedCategoriesM_forReport5.includes(cat) ? 'checked' : ''} onchange="updateReport5CategoryFilter(this.value, this.checked)" class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded mr-3"><span class="text-sm text-gray-700">${cat}</span></label>
+                                            `).join('') : '<div class="py-2 text-sm text-gray-500">ไม่พบค่าในช่วงที่เลือก</div>'}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <button onclick="window.print()" class="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded shadow flex items-center gap-2 h-fit mt-4 lg:mt-0"><svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg> พิมพ์รายงาน</button>
+                    </div>
+                </div>
+                <h3 class="text-xl font-bold text-center mb-4 print-only">${titleText}</h3>
+            `;
+
+            let tableHTML = `
+                <div class="overflow-x-auto bg-white rounded-lg border border-gray-200 shadow-sm">
+                    <table class="min-w-full text-sm text-left whitespace-nowrap print-fixed-table">
+                        <thead class="bg-blue-50 text-blue-900 border-b border-gray-200">
+                            <tr>
+                                <th class="px-4 py-3 font-semibold text-center border-r border-gray-200" style="width: 25mm;">วันที่</th>
+                                <th class="px-4 py-3 font-semibold border-r border-gray-200" style="width: 50mm;">บริษัท/หจก/ร้าน</th>
+                                <th class="px-4 py-3 font-semibold" style="width: 40mm;">ค่า</th>
+                                <th class="px-4 py-3 font-semibold" style="width: 40mm;">ใบส่งของ/แจ้งหนี้</th>
+                                <th class="px-4 py-3 font-semibold text-right" style="width: 35mm;">จำนวนเงิน</th>
+                            </tr>
+                        </thead>
+            `;
+
+            if (finalFilteredData.length === 0) {
+                 tableHTML += `<tbody><tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">ไม่พบข้อมูลตามเงื่อนไขที่เลือก</td></tr></tbody>`;
+            } else {
+                const groupedData = {};
+                finalFilteredData.forEach(row => {
+                    if (row._e === 0) return;
+                    let compC = row._compC === '' ? 'ไม่ระบุบริษัท' : row._compC;
+                    const dateSortKey = row._dateProcessTs || 0;
+                    if (!groupedData[dateSortKey]) groupedData[dateSortKey] = { displayDate: row._dateProcessStr, companies: {}, totalRows: 0 };
+                    if (!groupedData[dateSortKey].companies[compC]) groupedData[dateSortKey].companies[compC] = [];
+                    groupedData[dateSortKey].companies[compC].push(row);
+                    groupedData[dateSortKey].totalRows++;
+                });
+
+                let sumGrandTotalE = 0;
+                const dateKeys = Object.keys(groupedData).sort((a, b) => Number(a) - Number(b));
+
+                if (dateKeys.length === 0) {
+                    tableHTML += `<tbody><tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">ไม่พบยอดเงินในเงื่อนไขนี้</td></tr></tbody>`;
+                } else {
+                    tableHTML += `<tbody class="divide-y divide-gray-100">`;
+                    dateKeys.forEach((dKey) => {
+                        const dateGroup = groupedData[dKey];
+                        const cKeys = Object.keys(dateGroup.companies).sort();
+                        let isFirstRowOfDate = true;
+                        cKeys.forEach((cKey) => {
+                            const groupRows = dateGroup.companies[cKey];
+                            groupRows.forEach((row, idx) => {
+                                const e = parseNumberValue(row[4]); sumGrandTotalE += e;
+                                tableHTML += `<tr class="hover:bg-gray-50 transition-colors">`;
+                                if (isFirstRowOfDate) { tableHTML += `<td rowspan="${dateGroup.totalRows}" class="px-4 py-2 text-center text-gray-800 border-r border-gray-200 align-top bg-white font-medium">${dateGroup.displayDate}</td>`; isFirstRowOfDate = false; }
+                                if (idx === 0) tableHTML += `<td rowspan="${groupRows.length}" class="px-4 py-2 font-bold text-gray-800 align-top border-r border-gray-200 bg-white break-words">${cKey}</td>`;
+                                tableHTML += `<td class="px-4 py-2 text-gray-800 truncate print-truncate" style="max-width: 40mm;" title="${row._valM}">${row._valM}</td><td class="px-4 py-2 text-gray-800 break-words">${row._invD}</td><td class="px-4 py-2 text-right text-gray-800 font-medium">${formatNumber(e)}</td></tr>`;
+                            });
+                        });
+                    });
+                    tableHTML += `</tbody><tfoot class="bg-gray-200 border-t-2 border-gray-300 font-bold text-gray-900"><tr><td colspan="4" class="px-4 py-3 text-center border-r border-gray-300">รวมยอดเงินทั้งสิ้น</td><td class="px-4 py-3 text-right text-blue-900">${formatNumber(sumGrandTotalE)}</td></tr></tfoot>`;
+                }
+            }
+            tableHTML += `</table></div>`;
+            container.innerHTML = headerHTML + tableHTML;
+        }
+
+        // Init
+        document.addEventListener('DOMContentLoaded', () => {
+            Papa.parse(GOOGLE_SHEET_CSV_URL, {
+                download: true, header: false,
+                complete: function(results) {
+                    if(results.data.length < 5) return updateStatus(false);
+                    appData = enrichData(results.data.slice(4).filter(r => r.length>0 && r.some(c=>c!=="")));
+                    updateStatus(true);
+                    renderReport5(document.getElementById('contentContainer'));
+                }, error: function() { updateStatus(false); }
+            });
+        });
+    </script>
+</body>
+</html>
